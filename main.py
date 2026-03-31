@@ -7,9 +7,9 @@ from core.camera import Camera
 from core.detector import HandDetector
 from core.controller import Controller
 from gestures.classifier import GestureClassifier
-from keyboard.overlay import KeyboardOverlay
+from keyboard.overlay import KeyboardOverlay, KEY_MAP
 from keyboard.dwell import DwellManager
-from keyboard.overlay import KEY_MAP
+from utils.config_manager import ConfigManager
 
 app = QApplication.instance() or QApplication(sys.argv)
 _screen = app.primaryScreen().size()
@@ -94,23 +94,37 @@ def draw_guide(frame, visible, paused=False):
             cv2.FONT_HERSHEY_SIMPLEX, 0.42, (0, 220, 180), 1)
 
 def main():
-    camera = Camera(index=0)
-    detector = HandDetector(max_hands=2)
-    classifier = GestureClassifier()
+    config = ConfigManager()
+
+    camera = Camera(
+        index=config.get('app', 'camera_index', default=0)
+    )
+    detector = HandDetector(
+        max_hands=config.get('app', 'max_hands', default=2),
+        detection_confidence=config.get('app', 'detection_confidence', default=0.7),
+        tracking_confidence=config.get('app', 'tracking_confidence', default=0.7)
+    )
+    classifier = GestureClassifier(config=config)
     controller = Controller(
         screen_w=SCREEN_W,
         screen_h=SCREEN_H,
         cam_w=640,
-        cam_h=480
+        cam_h=480,
+        config=config
     )
 
-    keyboard = KeyboardOverlay(SCREEN_W, SCREEN_H, opacity=0.2)
-    dwell = DwellManager(dwell_time=0.8)
+    keyboard = KeyboardOverlay(
+        SCREEN_W, SCREEN_H,
+        opacity=config.get('typing', 'keyboard_opacity', default=0.2)
+    )
+    dwell = DwellManager(
+        dwell_time=config.get('typing', 'dwell_time', default=0.8)
+    )
     keyboard_visible = False
 
-    TYPING_FINGERTIPS = [8]
+    TYPING_FINGERTIPS = config.get('typing', 'fingertips', default=[8])
 
-    guide_visible = True
+    guide_visible = config.get('app', 'show_guide', default=True)
     guide_cooldown = 0
 
     print(f"Wavly starting... Screen: {SCREEN_W}x{SCREEN_H} | Press Q to quit.")
@@ -136,6 +150,8 @@ def main():
                 if is_pinky_only(landmarks) and now - guide_cooldown > 1.0:
                     guide_visible = not guide_visible
                     guide_cooldown = now
+                    # Save guide visibility preference
+                    config.set('app', 'show_guide', value=guide_visible)
                     continue
 
                 gesture = classifier.classify(landmarks, label)

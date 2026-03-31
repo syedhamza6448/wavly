@@ -1,0 +1,60 @@
+{
+    "gesture_mappings": {
+        "cursor_move": "move_cursor",
+        "left_click": "left_click",
+        "right_click": "right_click",
+        "double_click": "double_click",
+        "drag": "drag",
+        "scroll_up": "scroll_up",
+        "scroll_down": "scroll_down",
+        "switch_left": "switch_desktop_left",
+        "switch_right": "switch_desktop_right",
+        "enter": "press_enter",
+        "fist": "freeze_cursor",
+        "open_palm": "pause_tracking",
+        "keyboard_toggle": "toggle_keyboard"
+    },
+    "gesture_enabled": {
+        "cursor_move": true,
+        "left_click": true,
+        "right_click": true,
+        "double_click": true,
+        "drag": true,
+        "scroll_up": true,
+        "scroll_down": true,
+        "switch_left": true,
+        "switch_right": true,
+        "enter": true,
+        "fist": true,
+        "open_palm": true,
+        "keyboard_toggle": true
+    },
+    "typing": {
+        "fingertips": [
+            8
+        ],
+        "dwell_time": 0.8,
+        "keyboard_position": "bottom",
+        "keyboard_opacity": 0.2
+    },
+    "cursor": {
+        "smoothing": 5,
+        "sensitivity": 1.0,
+        "margin": 60
+    },
+    "gestures": {
+        "pinch_threshold": 40,
+        "swipe_threshold": 80,
+        "cooldown": 0.5,
+        "double_pinch_window": 0.4,
+        "index_hold_duration": 1.0,
+        "drag_hold_duration": 0.5
+    },
+    "app": {
+        "max_hands": 2,
+        "detection_confidence": 0.7,
+        "tracking_confidence": 0.7,
+        "show_guide": true,
+        "camera_index": 0
+    }
+}

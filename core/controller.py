@@ -2,71 +2,45 @@ import pyautogui
 import pynput.keyboard as kb
 import time
 
-# Safety — stops pyautogui from throwing errors at screen edges
 pyautogui.FAILSAFE = False
-# Removes the default 0.1s delay between pyautogui actions
 pyautogui.PAUSE = 0
 
 class Controller:
-    def __init__(self, screen_w, screen_h, cam_w=640, cam_h=480):
+    def __init__(self, screen_w, screen_h, cam_w=640, cam_h=480, config=None):
         self.screen_w = screen_w
         self.screen_h = screen_h
         self.cam_w = cam_w
         self.cam_h = cam_h
 
-        # Smoothing — previous cursor position
+        # Load from config if provided, else use defaults
+        self.smoothing = config.get('cursor', 'smoothing', default=5) if config else 5
+        self.sensitivity = config.get('cursor', 'sensitivity', default=1.0) if config else 1.0
+        self.margin = config.get('cursor', 'margin', default=60) if config else 60
+
         self.prev_x = 0
         self.prev_y = 0
-        self.smoothing = 5  # higher = smoother but slower
-
-        # Drag state
         self.is_dragging = False
-
-        # Tracking paused state
         self.tracking_paused = False
-
-        # Keyboard controller
         self.keyboard = kb.Controller()
 
-    # ─────────────────────────────────────────
-    # COORDINATE MAPPING
-    # ─────────────────────────────────────────
-
     def map_to_screen(self, x, y):
-        """
-        Maps camera coordinates to screen coordinates.
-        Adds a dead zone on camera edges so cursor
-        doesn't get stuck at screen edges.
-        """
-        margin = 60  # pixels to ignore at camera edges
-
-        # Clamp to safe zone
+        margin = self.margin
         x = max(margin, min(self.cam_w - margin, x))
         y = max(margin, min(self.cam_h - margin, y))
-
-        # Map to screen
-        screen_x = (x - margin) / (self.cam_w - 2 * margin) * self.screen_w
-        screen_y = (y - margin) / (self.cam_h - 2 * margin) * self.screen_h
-
-        return int(screen_x), int(screen_y)
+        screen_x = (x - margin) / (self.cam_w - 2 * margin) * self.screen_w * self.sensitivity
+        screen_y = (y - margin) / (self.cam_h - 2 * margin) * self.screen_h * self.sensitivity
+        screen_x = max(0, min(self.screen_w, int(screen_x)))
+        screen_y = max(0, min(self.screen_h, int(screen_y)))
+        return screen_x, screen_y
 
     def smooth(self, target_x, target_y):
-        """
-        Smooths cursor movement by interpolating between
-        current and previous position.
-        """
         smooth_x = self.prev_x + (target_x - self.prev_x) / self.smoothing
         smooth_y = self.prev_y + (target_y - self.prev_y) / self.smoothing
         self.prev_x = smooth_x
         self.prev_y = smooth_y
         return int(smooth_x), int(smooth_y)
 
-    # ─────────────────────────────────────────
-    # ACTIONS
-    # ─────────────────────────────────────────
-
     def move_cursor(self, landmark):
-        """Moves cursor to mapped position of index fingertip."""
         if self.tracking_paused:
             return
         raw_x = landmark['x']
@@ -107,17 +81,13 @@ class Controller:
     def scroll(self, direction):
         if self.tracking_paused:
             return
-        amount = 3  # scroll units per gesture
+        amount = 3
         if direction == 'up':
             pyautogui.scroll(amount)
         elif direction == 'down':
             pyautogui.scroll(-amount)
 
     def switch_desktop(self, direction):
-        """
-        Switches virtual desktop using Win + Ctrl + Arrow.
-        Windows 10/11 only.
-        """
         if self.tracking_paused:
             return
         key = kb.Key.right if direction == 'right' else kb.Key.left
@@ -132,10 +102,14 @@ class Controller:
         pyautogui.press('enter')
 
     def toggle_tracking(self):
-        """Pauses or resumes all tracking."""
         self.tracking_paused = not self.tracking_paused
         state = "PAUSED" if self.tracking_paused else "RESUMED"
         print(f"Tracking {state}")
-        # Make sure drag is released if tracking pauses mid-drag
         if self.tracking_paused:
             self.stop_drag()
+
+    def update_from_config(self, config):
+        """Hot-reloads cursor settings from config without restarting."""
+        self.smoothing = config.get('cursor', 'smoothing', default=5)
+        self.sensitivity = config.get('cursor', 'sensitivity', default=1.0)
+        self.margin = config.get('cursor', 'margin', default=60)
