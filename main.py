@@ -1,20 +1,20 @@
+import sys
 import time
 import cv2
+import pyautogui
+from PyQt6.QtWidgets import QApplication
 from core.camera import Camera
 from core.detector import HandDetector
 from core.controller import Controller
 from gestures.classifier import GestureClassifier
+from keyboard.overlay import KeyboardOverlay
+from keyboard.dwell import DwellManager
+from keyboard.overlay import KEY_MAP
 
-try:
-    from PyQt6.QtWidgets import QApplication
-    import sys
-    _app = QApplication.instance() or QApplication(sys.argv)
-    _screen = _app.primaryScreen().size()
-    SCREEN_W = _screen.width()
-    SCREEN_H = _screen.height()
-except Exception:
-    import pyautogui
-    SCREEN_W, SCREEN_H = pyautogui.size()
+app = QApplication.instance() or QApplication(sys.argv)
+_screen = app.primaryScreen().size()
+SCREEN_W = _screen.width()
+SCREEN_H = _screen.height()
 
 GESTURE_GUIDE = [
     ("Index finger",   "Move cursor"),
@@ -44,7 +44,6 @@ def is_pinky_only(landmarks):
 def draw_guide(frame, visible, paused=False):
     h, w, _ = frame.shape
 
-    # Paused banner
     if paused:
         cv2.putText(
             frame, "TRACKING PAUSED",
@@ -105,6 +104,12 @@ def main():
         cam_h=480
     )
 
+    keyboard = KeyboardOverlay(SCREEN_W, SCREEN_H, opacity=0.2)
+    dwell = DwellManager(dwell_time=0.8)
+    keyboard_visible = False
+
+    TYPING_FINGERTIPS = [8]
+
     guide_visible = True
     guide_cooldown = 0
 
@@ -120,11 +125,14 @@ def main():
             frame, hands = detector.detect(frame, draw=True)
             now = time.time()
 
+            fingertip_screen_positions = {}
+            dwell_progress_map = {}
+
             for hand in hands:
                 label = hand['label']
                 landmarks = hand['landmarks']
 
-                # Guide toggle — pinky only
+                # Guide toggle
                 if is_pinky_only(landmarks) and now - guide_cooldown > 1.0:
                     guide_visible = not guide_visible
                     guide_cooldown = now
@@ -132,13 +140,54 @@ def main():
 
                 gesture = classifier.classify(landmarks, label)
 
+                # Keyboard toggle
+                if gesture == 'keyboard_toggle':
+                    keyboard_visible = not keyboard_visible
+                    if keyboard_visible:
+                        keyboard.show()
+                        dwell.clear()
+                    else:
+                        keyboard.hide()
+                    continue
+
+                # Keyboard visible — handle typing only
+                if keyboard_visible:
+                    for fid in TYPING_FINGERTIPS:
+                        tip = landmarks[fid]
+                        screen_x, screen_y = controller.map_to_screen(
+                            tip['x'], tip['y']
+                        )
+                        fingertip_screen_positions[fid] = (screen_x, screen_y)
+
+                        widget_y = SCREEN_H - keyboard.kb_h - 10
+                        local_x = screen_x
+                        local_y = screen_y - widget_y
+                        key_label = keyboard.get_key_at(local_x, local_y)
+
+                        fired_key = dwell.update(fid, key_label)
+                        progress = dwell.get_progress(fid)
+
+                        if key_label:
+                            dwell_progress_map[fid] = (key_label, progress)
+
+                        if fired_key:
+                            key_to_press = KEY_MAP.get(fired_key, fired_key.lower())
+                            pyautogui.press(key_to_press)
+                            print(f"Typed: {fired_key}")
+
+                    keyboard.update_fingertips(
+                        fingertip_screen_positions,
+                        dwell_progress_map
+                    )
+                    app.processEvents()
+                    continue
+
+                # Normal gesture control
                 if not gesture:
-                    # Release drag if no gesture detected
                     controller.stop_drag()
                     continue
 
                 print(f"{label}: {gesture}")
-
                 cv2.putText(
                     frame,
                     f"{label}: {gesture}",
@@ -147,48 +196,31 @@ def main():
                     0.8, (255, 255, 0), 2
                 )
 
-                # Wire gestures to controller actions
                 if gesture == 'cursor_move':
                     controller.move_cursor(landmarks[8])
-
                 elif gesture == 'left_click':
                     controller.left_click()
-
                 elif gesture == 'right_click':
                     controller.right_click()
-
                 elif gesture == 'double_click':
                     controller.double_click()
-
                 elif gesture == 'drag':
                     controller.move_cursor(landmarks[8])
                     controller.start_drag()
-
                 elif gesture == 'scroll_up':
                     controller.scroll('up')
-
                 elif gesture == 'scroll_down':
                     controller.scroll('down')
-
                 elif gesture == 'switch_left':
                     controller.switch_desktop('left')
-
                 elif gesture == 'switch_right':
                     controller.switch_desktop('right')
-
                 elif gesture == 'enter':
                     controller.press_enter()
-
                 elif gesture == 'fist':
-                    # Fist freezes cursor — do nothing
                     controller.stop_drag()
-
                 elif gesture == 'open_palm':
                     controller.toggle_tracking()
-
-                elif gesture == 'keyboard_toggle':
-                    # Placeholder — wired in Phase 4
-                    print("Keyboard overlay coming in Phase 4")
 
             cv2.putText(
                 frame,
@@ -198,7 +230,17 @@ def main():
                 1, (0, 255, 0), 2
             )
 
+            if keyboard_visible:
+                cv2.putText(
+                    frame,
+                    "KEYBOARD ON — Three fingers to hide",
+                    (10, 60),
+                    cv2.FONT_HERSHEY_SIMPLEX,
+                    0.6, (0, 220, 180), 2
+                )
+
             draw_guide(frame, guide_visible, controller.tracking_paused)
+            app.processEvents()
 
             cv2.imshow("Wavly - Gesture Control", frame)
 
@@ -210,6 +252,7 @@ def main():
 
     finally:
         controller.stop_drag()
+        keyboard.hide()
         camera.release()
         cv2.destroyAllWindows()
 
