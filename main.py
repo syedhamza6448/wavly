@@ -10,6 +10,7 @@ from gestures.classifier import GestureClassifier
 from keyboard.overlay import KeyboardOverlay, KEY_MAP
 from keyboard.dwell import DwellManager
 from utils.config_manager import ConfigManager
+from ui.app import SettingsWindow
 
 app = QApplication.instance() or QApplication(sys.argv)
 _screen = app.primaryScreen().size()
@@ -122,12 +123,25 @@ def main():
     )
     keyboard_visible = False
 
+    # Settings window — created once, shown/hidden as needed
+    settings = SettingsWindow(config, controller, classifier)
+
+    # When settings saved, update dwell time and keyboard opacity live
+    def on_settings_saved():
+        dwell.dwell_time = config.get('typing', 'dwell_time', default=0.8)
+        keyboard.opacity = config.get('typing', 'keyboard_opacity', default=0.2)
+        keyboard.update()
+        print("Live settings applied.")
+
+    settings.settings_saved.connect(on_settings_saved)
+
     TYPING_FINGERTIPS = config.get('typing', 'fingertips', default=[8])
 
     guide_visible = config.get('app', 'show_guide', default=True)
     guide_cooldown = 0
 
-    print(f"Wavly starting... Screen: {SCREEN_W}x{SCREEN_H} | Press Q to quit.")
+    print(f"Wavly starting... Screen: {SCREEN_W}x{SCREEN_H}")
+    print("Press S in the webcam window to open Settings. Press Q to quit.")
 
     try:
         while True:
@@ -150,7 +164,6 @@ def main():
                 if is_pinky_only(landmarks) and now - guide_cooldown > 1.0:
                     guide_visible = not guide_visible
                     guide_cooldown = now
-                    # Save guide visibility preference
                     config.set('app', 'show_guide', value=guide_visible)
                     continue
 
@@ -166,8 +179,9 @@ def main():
                         keyboard.hide()
                     continue
 
-                # Keyboard visible — handle typing only
+                # Keyboard visible — typing mode
                 if keyboard_visible:
+                    TYPING_FINGERTIPS = config.get('typing', 'fingertips', default=[8])
                     for fid in TYPING_FINGERTIPS:
                         tip = landmarks[fid]
                         screen_x, screen_y = controller.map_to_screen(
@@ -260,8 +274,12 @@ def main():
 
             cv2.imshow("Wavly - Gesture Control", frame)
 
-            if cv2.waitKey(1) & 0xFF == ord('q'):
+            key = cv2.waitKey(1) & 0xFF
+            if key == ord('q'):
                 break
+            elif key == ord('s'):
+                settings.show()
+                settings.raise_()
 
     except KeyboardInterrupt:
         print("\nWavly stopped.")
@@ -269,6 +287,7 @@ def main():
     finally:
         controller.stop_drag()
         keyboard.hide()
+        settings.hide()
         camera.release()
         cv2.destroyAllWindows()
 

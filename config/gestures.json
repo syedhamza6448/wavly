@@ -34,16 +34,16 @@
             8
         ],
         "dwell_time": 0.8,
-        "keyboard_position": "bottom",
-        "keyboard_opacity": 0.2
+        "keyboard_position": "center",
+        "keyboard_opacity": 0.05
     },
     "cursor": {
         "smoothing": 5,
-        "sensitivity": 1.0,
+        "sensitivity": 1.5,
         "margin": 60
     },
     "gestures": {
-        "pinch_threshold": 40,
+        "pinch_threshold": 43,
         "swipe_threshold": 80,
         "cooldown": 0.5,
         "double_pinch_window": 0.4,
