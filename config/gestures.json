@@ -34,16 +34,16 @@
             8
         ],
         "dwell_time": 0.8,
-        "keyboard_position": "center",
-        "keyboard_opacity": 0.05
+        "keyboard_position": "bottom",
+        "keyboard_opacity": 0.2
     },
     "cursor": {
         "smoothing": 5,
-        "sensitivity": 1.5,
+        "sensitivity": 1.0,
         "margin": 60
     },
     "gestures": {
-        "pinch_threshold": 43,
+        "pinch_threshold": 40,
         "swipe_threshold": 80,
         "cooldown": 0.5,
         "double_pinch_window": 0.4,
@@ -55,6 +55,6 @@
         "detection_confidence": 0.7,
         "tracking_confidence": 0.7,
         "show_guide": true,
-        "camera_index": 0
+        "camera_index": 2
     }
 }

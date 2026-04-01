@@ -11,8 +11,10 @@ from keyboard.overlay import KeyboardOverlay, KEY_MAP
 from keyboard.dwell import DwellManager
 from utils.config_manager import ConfigManager
 from ui.app import SettingsWindow
+from ui.tray import TrayIcon
 
 app = QApplication.instance() or QApplication(sys.argv)
+app.setQuitOnLastWindowClosed(False)
 _screen = app.primaryScreen().size()
 SCREEN_W = _screen.width()
 SCREEN_H = _screen.height()
@@ -123,28 +125,58 @@ def main():
     )
     keyboard_visible = False
 
-    # Settings window — created once, shown/hidden as needed
     settings = SettingsWindow(config, controller, classifier)
+    tray = TrayIcon()
 
-    # When settings saved, update dwell time and keyboard opacity live
+    # ── Signal connections ──
+
     def on_settings_saved():
         dwell.dwell_time = config.get('typing', 'dwell_time', default=0.8)
         keyboard.opacity = config.get('typing', 'keyboard_opacity', default=0.2)
         keyboard.update()
+        tray.show_notification("Wavly", "Settings saved and applied.")
         print("Live settings applied.")
 
     settings.settings_saved.connect(on_settings_saved)
+    tray.open_settings.connect(lambda: (settings.show(), settings.raise_()))
 
-    TYPING_FINGERTIPS = config.get('typing', 'fingertips', default=[8])
+    def on_tray_toggle_tracking():
+        controller.toggle_tracking()
+        tray.update_tracking_state(controller.tracking_paused)
+        msg = "Tracking paused." if controller.tracking_paused else "Tracking resumed."
+        tray.show_notification("Wavly", msg)
+
+    tray.toggle_tracking.connect(on_tray_toggle_tracking)
+
+    def on_tray_toggle_keyboard():
+        nonlocal keyboard_visible
+        keyboard_visible = not keyboard_visible
+        if keyboard_visible:
+            keyboard.show()
+            dwell.clear()
+        else:
+            keyboard.hide()
+        tray.update_keyboard_state(keyboard_visible)
+
+    tray.toggle_keyboard.connect(on_tray_toggle_keyboard)
+
+    # Quit signal — sets a flag to break the main loop cleanly
+    quit_requested = [False]
+    tray.quit_app.connect(lambda: quit_requested.__setitem__(0, True))
 
     guide_visible = config.get('app', 'show_guide', default=True)
     guide_cooldown = 0
 
-    print(f"Wavly starting... Screen: {SCREEN_W}x{SCREEN_H}")
+    tray.show_notification("Wavly", "Wavly is running. Press S to open settings.")
+    print(f"Wavly started. Screen: {SCREEN_W}x{SCREEN_H}")
     print("Press S in the webcam window to open Settings. Press Q to quit.")
 
     try:
         while True:
+
+            if quit_requested[0]:
+                break
+
             frame = camera.read()
             if frame is None:
                 print("Camera not found.")
@@ -177,6 +209,7 @@ def main():
                         dwell.clear()
                     else:
                         keyboard.hide()
+                    tray.update_keyboard_state(keyboard_visible)
                     continue
 
                 # Keyboard visible — typing mode
@@ -251,6 +284,7 @@ def main():
                     controller.stop_drag()
                 elif gesture == 'open_palm':
                     controller.toggle_tracking()
+                    tray.update_tracking_state(controller.tracking_paused)
 
             cv2.putText(
                 frame,
@@ -288,6 +322,7 @@ def main():
         controller.stop_drag()
         keyboard.hide()
         settings.hide()
+        tray.hide()
         camera.release()
         cv2.destroyAllWindows()
 
