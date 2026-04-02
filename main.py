@@ -66,7 +66,7 @@ def draw_guide(frame, visible, paused=False):
         return
 
     panel_w = 280
-    row_h = 22
+    row_h   = 22
     padding = 10
     panel_h = len(GESTURE_GUIDE) * row_h + padding * 2 + 24
     x = w - panel_w - 10
@@ -97,6 +97,7 @@ def draw_guide(frame, visible, paused=False):
             (x + 158, row_y),
             cv2.FONT_HERSHEY_SIMPLEX, 0.42, (0, 220, 180), 1)
 
+
 def main():
     config = ConfigManager()
 
@@ -120,17 +121,22 @@ def main():
         SCREEN_W, SCREEN_H,
         opacity=config.get('typing', 'keyboard_opacity', default=0.2)
     )
+    # Apply saved position on startup
+    keyboard.set_position(
+        config.get('typing', 'keyboard_position', default='bottom')
+    )
+
     dwell = DwellManager(
         dwell_time=config.get('typing', 'dwell_time', default=0.8)
     )
     keyboard_visible = False
 
-    # UI windows
+    # UI
     dashboard = DashboardWindow()
     settings  = SettingsWindow(config, controller, classifier)
     tray      = TrayIcon()
 
-    # Debug mode — camera feed shown/hidden
+    # Debug mode
     debug_mode = [False]
 
     # FPS tracking
@@ -147,10 +153,34 @@ def main():
     # ── Signal connections ──
 
     def on_settings_saved():
+        # Dwell time
         dwell.dwell_time = config.get('typing', 'dwell_time', default=0.8)
-        keyboard.opacity = config.get('typing', 'keyboard_opacity', default=0.2)
+
+        # Keyboard opacity
+        keyboard.opacity = config.get(
+            'typing', 'keyboard_opacity', default=0.2
+        )
+
+        # Keyboard position — actually move the window
+        new_position = config.get(
+            'typing', 'keyboard_position', default='bottom'
+        )
+        keyboard.set_position(new_position)
+
+        # Force repaint
         keyboard.update()
+        keyboard.repaint()
+
+        # Controller and classifier
+        controller.update_from_config(config)
+        classifier.update_from_config(config)
+
         tray.show_notification("Wavly", "Settings saved and applied.")
+        print(
+            f"Settings applied — "
+            f"opacity: {keyboard.opacity}, "
+            f"position: {new_position}"
+        )
 
     def on_toggle_tracking():
         controller.toggle_tracking()
@@ -188,14 +218,18 @@ def main():
     tray.open_settings.connect(open_dashboard)
     tray.toggle_tracking.connect(on_toggle_tracking)
     tray.toggle_keyboard.connect(on_toggle_keyboard)
-    tray.quit_app.connect(lambda: quit_requested.__setitem__(0, True))
+    tray.quit_app.connect(
+        lambda: quit_requested.__setitem__(0, True)
+    )
 
     guide_visible  = config.get('app', 'show_guide', default=True)
     guide_cooldown = 0
 
     # Show dashboard on launch
     dashboard.show()
-    tray.show_notification("Wavly", "Wavly is running. Click the tray icon to open.")
+    tray.show_notification(
+        "Wavly", "Wavly is running. Click the tray icon to open."
+    )
     print(f"Wavly started. Screen: {SCREEN_W}x{SCREEN_H}")
 
     try:
@@ -221,13 +255,12 @@ def main():
 
             fingertip_screen_positions = {}
             dwell_progress_map         = {}
-            gesture_this_frame         = None
 
             for hand in hands:
                 label     = hand['label']
                 landmarks = hand['landmarks']
 
-                # Guide toggle (debug mode only)
+                # Guide toggle — debug only
                 if debug_mode[0]:
                     if is_pinky_only(landmarks) and now - guide_cooldown > 1.0:
                         guide_visible  = not guide_visible
@@ -238,7 +271,6 @@ def main():
                 gesture = classifier.classify(landmarks, label)
 
                 if gesture:
-                    gesture_this_frame   = gesture
                     last_gesture_label[0] = gesture.replace('_', ' ').title()
 
                 # Keyboard toggle
@@ -254,6 +286,7 @@ def main():
 
                 # Keyboard visible — typing mode
                 if keyboard_visible:
+                    # Read fingertips fresh from config every frame
                     TYPING_FINGERTIPS = config.get(
                         'typing', 'fingertips', default=[8]
                     )
@@ -264,9 +297,8 @@ def main():
                         )
                         fingertip_screen_positions[fid] = (screen_x, screen_y)
 
-                        widget_y  = SCREEN_H - keyboard.kb_h - 10
                         local_x   = screen_x
-                        local_y   = screen_y - widget_y
+                        local_y   = screen_y - keyboard._kb_y_offset
                         key_label = keyboard.get_key_at(local_x, local_y)
 
                         fired_key = dwell.update(fid, key_label)
@@ -332,24 +364,23 @@ def main():
 
             # Debug camera window
             if debug_mode[0]:
-                if debug_mode[0]:
-                    draw_guide(frame, guide_visible, controller.tracking_paused)
-                    if keyboard_visible:
-                        cv2.putText(
-                            frame,
-                            "KEYBOARD ON — Three fingers to hide",
-                            (10, 60),
-                            cv2.FONT_HERSHEY_SIMPLEX,
-                            0.6, (0, 220, 180), 2
-                        )
+                draw_guide(frame, guide_visible, controller.tracking_paused)
+                if keyboard_visible:
                     cv2.putText(
                         frame,
-                        f"Hands: {len(hands)}  FPS: {current_fps[0]}",
-                        (10, 30),
+                        "KEYBOARD ON — Three fingers to hide",
+                        (10, 60),
                         cv2.FONT_HERSHEY_SIMPLEX,
-                        0.8, (0, 255, 0), 2
+                        0.6, (0, 220, 180), 2
                     )
-                    cv2.imshow("Wavly - Debug", frame)
+                cv2.putText(
+                    frame,
+                    f"Hands: {len(hands)}  FPS: {current_fps[0]}",
+                    (10, 30),
+                    cv2.FONT_HERSHEY_SIMPLEX,
+                    0.8, (0, 255, 0), 2
+                )
+                cv2.imshow("Wavly - Debug", frame)
 
             app.processEvents()
 

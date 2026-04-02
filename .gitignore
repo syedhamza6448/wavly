@@ -35,3 +35,4 @@ Desktop.ini
 logs/
 
 assets/*.task
+installer_output/

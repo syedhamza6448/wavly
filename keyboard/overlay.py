@@ -1,11 +1,9 @@
-import sys
-import pyautogui
-from PyQt6.QtWidgets import QWidget, QApplication
-from PyQt6.QtCore import Qt, QRect, QTimer, pyqtSignal
+from PyQt6.QtWidgets import QWidget
+from PyQt6.QtCore import Qt, QRect, QTimer
 from PyQt6.QtGui import QPainter, QColor, QFont, QPen, QBrush
 
 # ─────────────────────────────────────────
-# KEYBOARD LAYOUT DEFINITION
+# KEYBOARD LAYOUT
 # ─────────────────────────────────────────
 
 FUNCTION_ROW = [
@@ -21,7 +19,6 @@ ROWS = [
     ['Ctrl', 'Win', 'Alt', 'Space', 'Alt', 'Ctrl']
 ]
 
-# Keys that are wider than standard
 WIDE_KEYS = {
     'Back': 1.8, 'Tab': 1.4, '\\': 1.4,
     'Caps': 1.6, 'Enter': 1.8,
@@ -29,7 +26,6 @@ WIDE_KEYS = {
     'Ctrl': 1.4, 'Win': 1.2, 'Alt': 1.2
 }
 
-# PyAutoGUI key name mapping
 KEY_MAP = {
     'Back': 'backspace', 'Tab': 'tab', 'Caps': 'capslock',
     'Enter': 'enter', 'Shift': 'shift', 'Ctrl': 'ctrl',
@@ -45,36 +41,24 @@ KEY_MAP = {
 
 
 class KeyboardOverlay(QWidget):
-    # Signal emitted when a key is pressed via dwell
-    key_pressed = pyqtSignal(str)
-
     def __init__(self, screen_w, screen_h, opacity=0.2):
         super().__init__()
         self.screen_w = screen_w
         self.screen_h = screen_h
-        self.opacity = opacity
+        self.opacity  = opacity
 
-        # Key size
-        self.key_w = 58
-        self.key_h = 48
-        self.key_gap = 4
+        self.key_h   = 52
+        self.key_gap = 5
+        self.padding = 8
 
-        # Fingertip dot positions {fingertip_id: (x, y)}
         self.fingertip_positions = {}
-
-        # Dwell progress per fingertip {fingertip_id: (key_label, progress)}
-        self.dwell_progress = {}
-
-        # Currently hovered key per fingertip
-        self.hovered_keys = {}
-
-        # Built key rects for hit testing
-        self.key_rects = []  # list of (QRect, key_label)
+        self.dwell_progress      = {}
+        self.hovered_keys        = {}
+        self.key_rects           = []
 
         self._setup_window()
         self._build_key_rects()
 
-        # Repaint timer — 30fps
         self.timer = QTimer()
         self.timer.timeout.connect(self.update)
         self.timer.start(33)
@@ -89,63 +73,92 @@ class KeyboardOverlay(QWidget):
         self.setAttribute(Qt.WidgetAttribute.WA_TranslucentBackground)
         self.setAttribute(Qt.WidgetAttribute.WA_ShowWithoutActivating)
 
-        # Calculate total keyboard height
-        total_rows = 1 + len(ROWS)  # function row + main rows
-        kb_h = total_rows * (self.key_h + self.key_gap) + self.key_gap + 20
+        total_rows    = 1 + len(ROWS)
+        self.kb_h     = (
+            total_rows * (self.key_h + self.key_gap)
+            + self.key_gap
+            + self.padding * 2
+        )
+        self._kb_y_offset = self.screen_h - self.kb_h
+        self.setGeometry(
+            0,
+            self._kb_y_offset,
+            self.screen_w,
+            self.kb_h
+        )
 
-        # Position at bottom of screen, full width
-        self.setGeometry(0, self.screen_h - kb_h - 10, self.screen_w, kb_h)
-        self.kb_h = kb_h
+    def set_position(self, position='bottom'):
+        """Moves the keyboard window based on position setting."""
+        if position == 'top':
+            y = 0
+        elif position == 'center':
+            y = (self.screen_h - self.kb_h) // 2
+        else:
+            y = self.screen_h - self.kb_h
+
+        self._kb_y_offset = y
+        self.setGeometry(0, y, self.screen_w, self.kb_h)
+        self._build_key_rects()
+
+    def _row_unit_width(self, row):
+        return sum(WIDE_KEYS.get(k, 1.0) for k in row)
 
     def _build_key_rects(self):
-        """Pre-calculates the QRect for every key for hit testing."""
+        """
+        Calculates key rects so every row fills exactly screen_w.
+        Each row gets its own unit size so all rows are flush.
+        """
         self.key_rects = []
-        total_rows = 1 + len(ROWS)
-        kb_h = total_rows * (self.key_h + self.key_gap) + self.key_gap + 20
-
-        y = 10
+        y = self.padding
 
         # Function row
-        f_key_w = (self.screen_w - 20) // len(FUNCTION_ROW)
-        for i, key in enumerate(FUNCTION_ROW):
-            x = 10 + i * f_key_w
-            rect = QRect(x, y, f_key_w - self.key_gap, self.key_h)
+        total_units = len(FUNCTION_ROW)
+        total_gap   = self.key_gap * (len(FUNCTION_ROW) - 1)
+        unit_w      = (
+            self.screen_w - self.padding * 2 - total_gap
+        ) / total_units
+
+        x = self.padding
+        for key in FUNCTION_ROW:
+            w    = int(unit_w)
+            rect = QRect(int(x), y, w - 1, self.key_h)
             self.key_rects.append((rect, key))
+            x += unit_w + self.key_gap
 
         y += self.key_h + self.key_gap
 
         # Main rows
         for row in ROWS:
-            x = 10
+            total_units = self._row_unit_width(row)
+            total_gap   = self.key_gap * (len(row) - 1)
+            unit_w      = (
+                self.screen_w - self.padding * 2 - total_gap
+            ) / total_units
+
+            x = self.padding
             for key in row:
                 multiplier = WIDE_KEYS.get(key, 1.0)
-                w = int(self.key_w * multiplier)
-                rect = QRect(x, y, w - self.key_gap, self.key_h)
+                w          = int(unit_w * multiplier)
+                rect       = QRect(int(x), y, w - 1, self.key_h)
                 self.key_rects.append((rect, key))
                 x += w + self.key_gap
+
             y += self.key_h + self.key_gap
 
     def get_key_at(self, x, y):
-        """Returns key label at position (x, y) relative to widget, or None."""
         for rect, label in self.key_rects:
-            if rect.contains(x, y):
+            if rect.contains(int(x), int(y)):
                 return label
         return None
 
     def update_fingertips(self, positions, dwell_progress):
-        """
-        Called every frame from main loop.
-        positions: {fingertip_id: (screen_x, screen_y)}
-        dwell_progress: {fingertip_id: (key_label, progress 0.0-1.0)}
-        """
-        # Convert screen coords to widget-local coords
-        widget_y_offset = self.screen_h - self.kb_h - 10
+        widget_y_offset = self._kb_y_offset
         self.fingertip_positions = {
             fid: (sx, sy - widget_y_offset)
             for fid, (sx, sy) in positions.items()
         }
         self.dwell_progress = dwell_progress
-        self.hovered_keys = {
+        self.hovered_keys   = {
             fid: self.get_key_at(lx, ly)
             for fid, (lx, ly) in self.fingertip_positions.items()
         }
@@ -154,55 +167,56 @@ class KeyboardOverlay(QWidget):
         painter = QPainter(self)
         painter.setRenderHint(QPainter.RenderHint.Antialiasing)
 
-        font = QFont('Segoe UI', 10)
+        font = QFont('Segoe UI', max(8, self.key_h // 4))
         painter.setFont(font)
 
         for rect, label in self.key_rects:
             self._draw_key(painter, rect, label)
 
-        # Draw fingertip dots
+        # Fingertip dots — always fully opaque
         for fid, (lx, ly) in self.fingertip_positions.items():
-            color = QColor(0, 220, 180, 220)
-            painter.setBrush(QBrush(color))
-            painter.setPen(Qt.PenStyle.NoPen)
-            painter.drawEllipse(lx - 8, ly - 8, 16, 16)
+            painter.setBrush(QBrush(QColor(0, 220, 180, 230)))
+            painter.setPen(QPen(QColor(255, 255, 255, 180), 2))
+            painter.drawEllipse(int(lx) - 10, int(ly) - 10, 20, 20)
 
         painter.end()
 
     def _draw_key(self, painter, rect, label):
-        # Check if any fingertip is hovering this key
         is_hovered = label in self.hovered_keys.values()
 
-        # Get dwell progress for this key
+        # Dwell progress for this key
         progress = 0.0
         for fid, (key_label, prog) in self.dwell_progress.items():
             if key_label == label:
                 progress = prog
                 break
 
-        # Base key color
+        # Key background — opacity controlled
+        bg_alpha = int(self.opacity * 255)
         if is_hovered:
-            bg = QColor(255, 255, 255, int(self.opacity * 255 * 3))
+            bg_color = QColor(255, 255, 255, min(255, bg_alpha * 4))
         else:
-            bg = QColor(255, 255, 255, int(self.opacity * 255))
+            bg_color = QColor(30, 30, 30, max(60, bg_alpha * 3))
 
-        # Draw key background
-        painter.setBrush(QBrush(bg))
-        painter.setPen(QPen(QColor(255, 255, 255, 60), 1))
+        painter.setBrush(QBrush(bg_color))
+        painter.setPen(QPen(QColor(255, 255, 255, 40), 1))
         painter.drawRoundedRect(rect, 6, 6)
 
-        # Draw dwell progress fill (cyan fill from left)
+        # Dwell fill — cyan from left
         if progress > 0:
-            fill_w = int(rect.width() * progress)
+            fill_w    = int(rect.width() * progress)
             fill_rect = QRect(rect.x(), rect.y(), fill_w, rect.height())
-            painter.setBrush(QBrush(QColor(0, 220, 180, 120)))
+            painter.setBrush(QBrush(QColor(0, 220, 180, 160)))
             painter.setPen(Qt.PenStyle.NoPen)
             painter.drawRoundedRect(fill_rect, 6, 6)
 
-        # Draw key label
-        if is_hovered:
-            painter.setPen(QPen(QColor(255, 255, 255, 255)))
+        # Key label — ALWAYS fully opaque regardless of opacity setting
+        if progress > 0.5:
+            text_color = QColor(0, 0, 0, 255)
+        elif is_hovered:
+            text_color = QColor(0, 220, 180, 255)
         else:
-            painter.setPen(QPen(QColor(255, 255, 255, int(self.opacity * 255 * 6))))
+            text_color = QColor(255, 255, 255, 255)
 
+        painter.setPen(QPen(text_color))
         painter.drawText(rect, Qt.AlignmentFlag.AlignCenter, label)
