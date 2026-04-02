@@ -4,3 +4,4 @@ pyautogui
 pynput
 PyQt6
 python-dotenv
+pyinstaller

@@ -1,6 +1,6 @@
 import cv2
 import mediapipe as mp
-from mediapipe.tasks.python.components.containers.landmark import NormalizedLandmark
+from utils.config_manager import resource_path
 
 BaseOptions = mp.tasks.BaseOptions
 HandLandmarker = mp.tasks.vision.HandLandmarker
@@ -9,8 +9,9 @@ VisionRunningMode = mp.tasks.vision.RunningMode
 
 class HandDetector:
     def __init__(self, max_hands=2, detection_confidence=0.7, tracking_confidence=0.7):
+        model_path = resource_path('assets/hand_landmarker.task')
         options = HandLandmarkerOptions(
-            base_options=BaseOptions(model_asset_path='assets/hand_landmarker.task'),
+            base_options=BaseOptions(model_asset_path=model_path),
             running_mode=VisionRunningMode.IMAGE,
             num_hands=max_hands,
             min_hand_detection_confidence=detection_confidence,
