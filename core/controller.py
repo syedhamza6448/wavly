@@ -7,26 +7,23 @@ pyautogui.PAUSE = 0
 
 class Controller:
     def __init__(self, screen_w, screen_h, cam_w=640, cam_h=480, config=None):
-        self.screen_w = screen_w
-        self.screen_h = screen_h
-        self.cam_w = cam_w
-        self.cam_h = cam_h
-
-        # Load from config if provided, else use defaults
-        self.smoothing = config.get('cursor', 'smoothing', default=5) if config else 5
-        self.sensitivity = config.get('cursor', 'sensitivity', default=1.0) if config else 1.0
-        self.margin = config.get('cursor', 'margin', default=60) if config else 60
-
-        self.prev_x = 0
-        self.prev_y = 0
-        self.is_dragging = False
+        self.screen_w   = screen_w
+        self.screen_h   = screen_h
+        self.cam_w      = cam_w
+        self.cam_h      = cam_h
+        self.smoothing  = config.get('cursor', 'smoothing',    default=5)   if config else 5
+        self.sensitivity= config.get('cursor', 'sensitivity',  default=1.0) if config else 1.0
+        self.margin     = config.get('cursor', 'margin',       default=30)  if config else 30
+        self.prev_x     = 0
+        self.prev_y     = 0
+        self.is_dragging     = False
         self.tracking_paused = False
-        self.keyboard = kb.Controller()
+        self.keyboard        = kb.Controller()
 
     def map_to_screen(self, x, y):
-        margin = self.margin
-        x = max(margin, min(self.cam_w - margin, x))
-        y = max(margin, min(self.cam_h - margin, y))
+        margin   = self.margin
+        x        = max(margin, min(self.cam_w - margin, x))
+        y        = max(margin, min(self.cam_h - margin, y))
         screen_x = (x - margin) / (self.cam_w - 2 * margin) * self.screen_w * self.sensitivity
         screen_y = (y - margin) / (self.cam_h - 2 * margin) * self.screen_h * self.sensitivity
         screen_x = max(0, min(self.screen_w, int(screen_x)))
@@ -34,18 +31,16 @@ class Controller:
         return screen_x, screen_y
 
     def smooth(self, target_x, target_y):
-        smooth_x = self.prev_x + (target_x - self.prev_x) / self.smoothing
-        smooth_y = self.prev_y + (target_y - self.prev_y) / self.smoothing
-        self.prev_x = smooth_x
-        self.prev_y = smooth_y
+        smooth_x     = self.prev_x + (target_x - self.prev_x) / self.smoothing
+        smooth_y     = self.prev_y + (target_y - self.prev_y) / self.smoothing
+        self.prev_x  = smooth_x
+        self.prev_y  = smooth_y
         return int(smooth_x), int(smooth_y)
 
     def move_cursor(self, landmark):
         if self.tracking_paused:
             return
-        raw_x = landmark['x']
-        raw_y = landmark['y']
-        screen_x, screen_y = self.map_to_screen(raw_x, raw_y)
+        screen_x, screen_y = self.map_to_screen(landmark['x'], landmark['y'])
         smooth_x, smooth_y = self.smooth(screen_x, screen_y)
         pyautogui.moveTo(smooth_x, smooth_y)
 
@@ -109,7 +104,6 @@ class Controller:
             self.stop_drag()
 
     def update_from_config(self, config):
-        """Hot-reloads cursor settings from config without restarting."""
-        self.smoothing = config.get('cursor', 'smoothing', default=5)
+        self.smoothing   = config.get('cursor', 'smoothing',   default=5)
         self.sensitivity = config.get('cursor', 'sensitivity', default=1.0)
-        self.margin = config.get('cursor', 'margin', default=60)
+        self.margin      = config.get('cursor', 'margin',      default=30)

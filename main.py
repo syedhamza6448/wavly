@@ -1,8 +1,18 @@
 import sys
+import logging
 import time
 import cv2
 import pyautogui
+
+# Load fonts FIRST before any UI imports
 from PyQt6.QtWidgets import QApplication
+app = QApplication.instance() or QApplication(sys.argv)
+app.setQuitOnLastWindowClosed(False)
+
+from ui.fonts import load_fonts
+load_fonts()
+
+# Now safe to import UI modules
 from core.camera import Camera
 from core.detector import HandDetector
 from core.controller import Controller
@@ -13,9 +23,8 @@ from utils.config_manager import ConfigManager
 from ui.app import SettingsWindow
 from ui.tray import TrayIcon
 from ui.dashboard import DashboardWindow
+from ui.toolbar import SlideToolbar
 
-app = QApplication.instance() or QApplication(sys.argv)
-app.setQuitOnLastWindowClosed(False)
 _screen = app.primaryScreen().size()
 SCREEN_W = _screen.width()
 SCREEN_H = _screen.height()
@@ -101,6 +110,78 @@ def draw_guide(frame, visible, paused=False):
 def main():
     config = ConfigManager()
 
+    # ── Show UI first, before heavy initialization ──
+    dashboard = DashboardWindow()
+    dashboard.showMaximized()
+    app.processEvents()
+
+    # Loading screen label
+    from PyQt6.QtWidgets import QLabel
+    from PyQt6.QtCore import Qt
+    loading = QLabel("Initializing camera and hand detection...", dashboard)
+    loading.setStyleSheet(
+        f"color: #00dcdc; font-size: 14px; "
+        f"font-family: 'Plus Jakarta Sans';"
+        f"background: transparent;"
+    )
+    loading.setAlignment(Qt.AlignmentFlag.AlignCenter)
+    loading.resize(500, 40)
+    loading.move(
+        (dashboard.width() - 500) // 2,
+        dashboard.height() - 60
+    )
+    loading.show()
+    app.processEvents()
+
+    # ── Now do heavy initialization ──
+    camera = Camera(
+        index=config.get('app', 'camera_index', default=0)
+    )
+    app.processEvents()
+
+    detector = HandDetector(
+        max_hands=config.get('app', 'max_hands', default=2),
+        detection_confidence=config.get('app', 'detection_confidence', default=0.7),
+        tracking_confidence=config.get('app', 'tracking_confidence', default=0.7)
+    )
+    app.processEvents()
+
+    classifier = GestureClassifier(config=config)
+    controller = Controller(
+        screen_w=SCREEN_W,
+        screen_h=SCREEN_H,
+        cam_w=640,
+        cam_h=480,
+        config=config
+    )
+    keyboard = KeyboardOverlay(
+        SCREEN_W, SCREEN_H,
+        opacity=config.get('typing', 'keyboard_opacity', default=0.2)
+    )
+    keyboard.set_position(
+        config.get('typing', 'keyboard_position', default='bottom')
+    )
+    dwell = DwellManager(
+        dwell_time=config.get('typing', 'dwell_time', default=0.8)
+    )
+    keyboard_visible = False
+
+    # ── Rest of UI ──
+    settings = SettingsWindow(config, controller, classifier)
+    tray     = TrayIcon()
+    toolbar  = SlideToolbar(SCREEN_W, SCREEN_H)
+
+    # Remove loading label
+    loading.hide()
+    loading.deleteLater()
+    app.processEvents()
+
+    toolbar.show()
+    app.processEvents()
+
+    # rest of main() stays exactly the same from here...
+    config = ConfigManager()
+
     camera = Camera(
         index=config.get('app', 'camera_index', default=0)
     )
@@ -121,7 +202,6 @@ def main():
         SCREEN_W, SCREEN_H,
         opacity=config.get('typing', 'keyboard_opacity', default=0.2)
     )
-    # Apply saved position on startup
     keyboard.set_position(
         config.get('typing', 'keyboard_position', default='bottom')
     )
@@ -131,56 +211,33 @@ def main():
     )
     keyboard_visible = False
 
-    # UI
+    # ── UI — create but do NOT show yet ──
     dashboard = DashboardWindow()
     settings  = SettingsWindow(config, controller, classifier)
     tray      = TrayIcon()
+    toolbar   = SlideToolbar(SCREEN_W, SCREEN_H)
 
     # Debug mode
-    debug_mode = [False]
-
-    # FPS tracking
-    fps_counter = [0]
-    fps_timer   = [time.time()]
-    current_fps = [0]
-
-    # Last gesture for dashboard
+    debug_mode         = [False]
+    fps_counter        = [0]
+    fps_timer          = [time.time()]
+    current_fps        = [0]
     last_gesture_label = ["None"]
-
-    # Quit flag
-    quit_requested = [False]
+    quit_requested     = [False]
 
     # ── Signal connections ──
 
     def on_settings_saved():
-        # Dwell time
         dwell.dwell_time = config.get('typing', 'dwell_time', default=0.8)
-
-        # Keyboard opacity
-        keyboard.opacity = config.get(
-            'typing', 'keyboard_opacity', default=0.2
-        )
-
-        # Keyboard position — actually move the window
-        new_position = config.get(
-            'typing', 'keyboard_position', default='bottom'
-        )
+        keyboard.opacity = config.get('typing', 'keyboard_opacity', default=0.2)
+        new_position     = config.get('typing', 'keyboard_position', default='bottom')
         keyboard.set_position(new_position)
-
-        # Force repaint
         keyboard.update()
         keyboard.repaint()
-
-        # Controller and classifier
         controller.update_from_config(config)
         classifier.update_from_config(config)
-
         tray.show_notification("Wavly", "Settings saved and applied.")
-        print(
-            f"Settings applied — "
-            f"opacity: {keyboard.opacity}, "
-            f"position: {new_position}"
-        )
+        print(f"Settings applied — opacity: {keyboard.opacity}, position: {new_position}")
 
     def on_toggle_tracking():
         controller.toggle_tracking()
@@ -202,39 +259,37 @@ def main():
             cv2.destroyAllWindows()
 
     def open_settings():
-        settings.show()
+        settings.showMaximized()
         settings.raise_()
 
     def open_dashboard():
-        dashboard.show()
+        dashboard.showMaximized()
         dashboard.raise_()
 
     settings.settings_saved.connect(on_settings_saved)
-
     dashboard.open_settings.connect(open_settings)
     dashboard.toggle_tracking.connect(on_toggle_tracking)
     dashboard.toggle_debug.connect(on_toggle_debug)
-
     tray.open_settings.connect(open_dashboard)
     tray.toggle_tracking.connect(on_toggle_tracking)
     tray.toggle_keyboard.connect(on_toggle_keyboard)
-    tray.quit_app.connect(
-        lambda: quit_requested.__setitem__(0, True)
-    )
+    tray.quit_app.connect(lambda: quit_requested.__setitem__(0, True))
 
     guide_visible  = config.get('app', 'show_guide', default=True)
     guide_cooldown = 0
 
-    # Show dashboard on launch
-    dashboard.show()
-    tray.show_notification(
-        "Wavly", "Wavly is running. Click the tray icon to open."
-    )
+    # ── Show UI — only AFTER all signals are connected ──
+    app.processEvents()
+    dashboard.showMaximized()
+    app.processEvents()
+    toolbar.show()
+    app.processEvents()
+
+    tray.show_notification("Wavly", "Wavly is running. Click the tray icon to open.")
     print(f"Wavly started. Screen: {SCREEN_W}x{SCREEN_H}")
 
     try:
         while True:
-
             if quit_requested[0]:
                 break
 
@@ -246,7 +301,7 @@ def main():
             frame, hands = detector.detect(frame, draw=debug_mode[0])
             now = time.time()
 
-            # FPS calculation
+            # FPS
             fps_counter[0] += 1
             if now - fps_timer[0] >= 1.0:
                 current_fps[0] = fps_counter[0]
@@ -260,7 +315,6 @@ def main():
                 label     = hand['label']
                 landmarks = hand['landmarks']
 
-                # Guide toggle — debug only
                 if debug_mode[0]:
                     if is_pinky_only(landmarks) and now - guide_cooldown > 1.0:
                         guide_visible  = not guide_visible
@@ -273,7 +327,6 @@ def main():
                 if gesture:
                     last_gesture_label[0] = gesture.replace('_', ' ').title()
 
-                # Keyboard toggle
                 if gesture == 'keyboard_toggle':
                     keyboard_visible = not keyboard_visible
                     if keyboard_visible:
@@ -284,33 +337,23 @@ def main():
                     tray.update_keyboard_state(keyboard_visible)
                     continue
 
-                # Keyboard visible — typing mode
                 if keyboard_visible:
-                    # Read fingertips fresh from config every frame
-                    TYPING_FINGERTIPS = config.get(
-                        'typing', 'fingertips', default=[8]
-                    )
+                    TYPING_FINGERTIPS = config.get('typing', 'fingertips', default=[8])
                     for fid in TYPING_FINGERTIPS:
                         tip      = landmarks[fid]
                         screen_x, screen_y = controller.map_to_screen(
                             tip['x'], tip['y']
                         )
                         fingertip_screen_positions[fid] = (screen_x, screen_y)
-
                         local_x   = screen_x
                         local_y   = screen_y - keyboard._kb_y_offset
                         key_label = keyboard.get_key_at(local_x, local_y)
-
                         fired_key = dwell.update(fid, key_label)
                         progress  = dwell.get_progress(fid)
-
                         if key_label:
                             dwell_progress_map[fid] = (key_label, progress)
-
                         if fired_key:
-                            key_to_press = KEY_MAP.get(
-                                fired_key, fired_key.lower()
-                            )
+                            key_to_press = KEY_MAP.get(fired_key, fired_key.lower())
                             pyautogui.press(key_to_press)
                             last_gesture_label[0] = f"Typed: {fired_key}"
                             print(f"Typed: {fired_key}")
@@ -322,9 +365,9 @@ def main():
                     app.processEvents()
                     continue
 
-                # Normal gesture control
                 if not gesture:
                     controller.stop_drag()
+                    classifier.clear_swipe(label)
                     continue
 
                 if gesture == 'cursor_move':
@@ -353,8 +396,9 @@ def main():
                 elif gesture == 'open_palm':
                     controller.toggle_tracking()
                     tray.update_tracking_state(controller.tracking_paused)
+                elif gesture in ('two_fingers_hold', 'four_fingers_hold'):
+                    pass
 
-            # Update dashboard every frame
             dashboard.update_status(
                 tracking     = not controller.tracking_paused,
                 hands        = len(hands),
@@ -362,7 +406,6 @@ def main():
                 fps          = current_fps[0]
             )
 
-            # Debug camera window
             if debug_mode[0]:
                 draw_guide(frame, guide_visible, controller.tracking_paused)
                 if keyboard_visible:
@@ -388,8 +431,7 @@ def main():
             if key == ord('q'):
                 break
             elif key == ord('s'):
-                settings.show()
-                settings.raise_()
+                open_settings()
 
     except KeyboardInterrupt:
         print("\nWavly stopped.")
@@ -399,6 +441,7 @@ def main():
         keyboard.hide()
         settings.hide()
         dashboard.hide()
+        toolbar.hide()
         tray.hide()
         camera.release()
         cv2.destroyAllWindows()

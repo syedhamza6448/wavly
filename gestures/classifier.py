@@ -173,11 +173,22 @@ class GestureClassifier:
         key = f'swipe_{hand_label}'
 
         if key not in self.swipe_start:
-            self.swipe_start[key] = {'x': tip['x'], 'y': tip['y']}
+            # First frame — record start position
+            self.swipe_start[key] = {
+                'x': tip['x'],
+                'y': tip['y'],
+                'frames': 0
+            }
             return None
+
+        self.swipe_start[key]['frames'] += 1
 
         dx = tip['x'] - self.swipe_start[key]['x']
         dy = tip['y'] - self.swipe_start[key]['y']
+
+        # Need at least 3 frames of consistent movement
+        if self.swipe_start[key]['frames'] < 3:
+            return None
 
         if abs(dx) > self.swipe_threshold:
             self.swipe_start.pop(key, None)
@@ -188,6 +199,11 @@ class GestureClassifier:
             return 'down' if dy > 0 else 'up'
 
         return None
+    
+    def clear_swipe(self, hand_label):
+        """Call when gesture ends to reset swipe tracking."""
+        key = f'swipe_{hand_label}'
+        self.swipe_start.pop(key, None)
 
     # ─────────────────────────────────────────
     # CONFIG HOT-RELOAD
@@ -263,16 +279,23 @@ class GestureClassifier:
             direction = self.get_swipe_direction(landmarks, hand_label)
             if direction == 'up':
                 return 'scroll_up'
-            if direction == 'down':
+            elif direction == 'down':
                 return 'scroll_down'
+            else:
+                # No swipe yet — return a holding state so
+                # swipe_start isn't reset by other gestures
+                return 'two_fingers_hold'
+
 
         # Desktop switch
         if self.enabled('switch_left') and self.is_four_fingers_up(landmarks):
             direction = self.get_swipe_direction(landmarks, hand_label)
             if direction == 'left':
                 return 'switch_left'
-            if direction == 'right':
+            elif direction == 'right':
                 return 'switch_right'
+            else:
+                return 'four_fingers_hold'
 
         # Cursor movement
         if self.enabled('cursor_move') and self.is_index_only(landmarks):
