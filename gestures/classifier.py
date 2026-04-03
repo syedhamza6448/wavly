@@ -7,7 +7,7 @@ class GestureClassifier:
         self.last_gesture_time = {}
         self.cooldown = config.get('gestures', 'cooldown', default=0.5) if config else 0.5
         self.swipe_start = {}
-        self.swipe_threshold = config.get('gestures', 'swipe_threshold', default=80) if config else 80
+        self.swipe_threshold = config.get('gestures', 'swipe_threshold', default=50) if config else 50
         self.gesture_start_time = {}
         self.last_pinch_time = 0
         self.double_pinch_window = config.get('gestures', 'double_pinch_window', default=0.4) if config else 0.4
@@ -50,7 +50,7 @@ class GestureClassifier:
 
     def on_cooldown(self, gesture_name):
         """Returns True if gesture is still in cooldown."""
-        now = time.time()
+        now  = time.time()
         last = self.last_gesture_time.get(gesture_name, 0)
         return (now - last) < self.cooldown
 
@@ -167,6 +167,20 @@ class GestureClassifier:
             self.last_pinch_time = now
         return False
 
+    def is_pinky_only(self, landmarks):
+        """Only pinky finger is up."""
+        fingers = self.get_extended_fingers(landmarks)
+        return (
+            not fingers[1] and
+            not fingers[2] and
+            not fingers[3] and
+            fingers[4]
+        )
+
+    # ─────────────────────────────────────────
+    # SWIPE DETECTION
+    # ─────────────────────────────────────────
+
     def get_swipe_direction(self, landmarks, hand_label):
         """Detects swipe direction from index fingertip movement."""
         tip = landmarks[8]
@@ -199,9 +213,9 @@ class GestureClassifier:
             return 'down' if dy > 0 else 'up'
 
         return None
-    
+
     def clear_swipe(self, hand_label):
-        """Call when gesture ends to reset swipe tracking."""
+        """Resets swipe tracking when gesture ends."""
         key = f'swipe_{hand_label}'
         self.swipe_start.pop(key, None)
 
@@ -211,12 +225,12 @@ class GestureClassifier:
 
     def update_from_config(self, config):
         """Hot-reloads gesture thresholds from config."""
-        self.cooldown = config.get('gestures', 'cooldown', default=0.5)
-        self.swipe_threshold = config.get('gestures', 'swipe_threshold', default=80)
+        self.cooldown            = config.get('gestures', 'cooldown',            default=0.5)
+        self.swipe_threshold     = config.get('gestures', 'swipe_threshold',     default=50)
         self.double_pinch_window = config.get('gestures', 'double_pinch_window', default=0.4)
-        self.pinch_threshold = config.get('gestures', 'pinch_threshold', default=40)
+        self.pinch_threshold     = config.get('gestures', 'pinch_threshold',     default=40)
         self.index_hold_duration = config.get('gestures', 'index_hold_duration', default=1.0)
-        self.drag_hold_duration = config.get('gestures', 'drag_hold_duration', default=0.5)
+        self.drag_hold_duration  = config.get('gestures', 'drag_hold_duration',  default=0.5)
 
     # ─────────────────────────────────────────
     # MAIN CLASSIFY METHOD
@@ -274,7 +288,7 @@ class GestureClassifier:
                 self.reset_cooldown('enter')
                 return 'enter'
 
-        # Scroll
+        # Scroll (two fingers up — track swipe direction)
         if self.enabled('scroll_up') and self.is_two_fingers_up(landmarks):
             direction = self.get_swipe_direction(landmarks, hand_label)
             if direction == 'up':
@@ -282,12 +296,10 @@ class GestureClassifier:
             elif direction == 'down':
                 return 'scroll_down'
             else:
-                # No swipe yet — return a holding state so
-                # swipe_start isn't reset by other gestures
+                # Holding position — waiting for swipe to accumulate
                 return 'two_fingers_hold'
 
-
-        # Desktop switch
+        # Desktop switch (four fingers up — track swipe direction)
         if self.enabled('switch_left') and self.is_four_fingers_up(landmarks):
             direction = self.get_swipe_direction(landmarks, hand_label)
             if direction == 'left':
@@ -295,6 +307,7 @@ class GestureClassifier:
             elif direction == 'right':
                 return 'switch_right'
             else:
+                # Holding position — waiting for swipe to accumulate
                 return 'four_fingers_hold'
 
         # Cursor movement

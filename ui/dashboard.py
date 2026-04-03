@@ -413,13 +413,13 @@ class DashboardWindow(QWidget):
         ref_card.layout().addWidget(make_divider())
 
         gestures = [
-            ("Index finger",   "Move cursor",        ACCENT),
+            ("Index finger",   "Move cursor",         ACCENT),
             ("Pinch",          "Left click",          SUCCESS),
             ("Pinch + hold",   "Drag",                SUCCESS),
             ("Double pinch",   "Double click",        SUCCESS),
             ("Thumb + middle", "Right click",         WARNING),
             ("Two fingers",    "Scroll up / down",    ACCENT),
-            ("Four fingers",   "Switch desktop",      ACCENT),
+            ("Four fingers",   "Alt+Tab",             ACCENT),
             ("Index held 1s",  "Press Enter",         TEXT_MUTED),
             ("Three fingers",  "Toggle keyboard",     WARNING),
             ("Fist",           "Freeze cursor",       DANGER),

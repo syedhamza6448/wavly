@@ -36,7 +36,7 @@ GESTURE_GUIDE = [
     ("Double pinch",   "Double click"),
     ("Thumb + middle", "Right click"),
     ("Two fingers",    "Scroll"),
-    ("Four fingers",   "Switch desktop"),
+    ("Four fingers",   "Alt+Tab"),
     ("Index held 1s",  "Enter key"),
     ("Three fingers",  "Toggle keyboard"),
     ("Fist",           "Freeze cursor"),

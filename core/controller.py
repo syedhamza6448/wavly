@@ -85,11 +85,15 @@ class Controller:
     def switch_desktop(self, direction):
         if self.tracking_paused:
             return
-        key = kb.Key.right if direction == 'right' else kb.Key.left
-        with self.keyboard.pressed(kb.Key.ctrl):
-            with self.keyboard.pressed(kb.Key.cmd):
-                self.keyboard.press(key)
-                self.keyboard.release(key)
+        if direction == 'right':
+            with self.keyboard.pressed(kb.Key.alt):
+                self.keyboard.press(kb.Key.tab)
+                self.keyboard.release(kb.Key.tab)
+        elif direction == 'left':
+            with self.keyboard.pressed(kb.Key.alt):
+                with self.keyboard.pressed(kb.Key.shift):
+                    self.keyboard.press(kb.Key.tab)
+                    self.keyboard.release(kb.Key.tab)
 
     def press_enter(self):
         if self.tracking_paused:
