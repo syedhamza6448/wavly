@@ -4,7 +4,12 @@ import time
 import cv2
 import pyautogui
 
-# Load fonts FIRST before any UI imports
+logging.basicConfig(
+    filename='wavly_debug.log',
+    level=logging.DEBUG,
+    format='%(asctime)s %(levelname)s %(message)s'
+)
+
 from PyQt6.QtWidgets import QApplication
 app = QApplication.instance() or QApplication(sys.argv)
 app.setQuitOnLastWindowClosed(False)
@@ -12,7 +17,6 @@ app.setQuitOnLastWindowClosed(False)
 from ui.fonts import load_fonts
 load_fonts()
 
-# Now safe to import UI modules
 from core.camera import Camera
 from core.detector import HandDetector
 from core.controller import Controller
@@ -24,6 +28,7 @@ from ui.app import SettingsWindow
 from ui.tray import TrayIcon
 from ui.dashboard import DashboardWindow
 from ui.toolbar import SlideToolbar
+from ui.hand_overlay import HandOverlay
 
 _screen = app.primaryScreen().size()
 SCREEN_W = _screen.width()
@@ -36,23 +41,13 @@ GESTURE_GUIDE = [
     ("Double pinch",   "Double click"),
     ("Thumb + middle", "Right click"),
     ("Two fingers",    "Scroll"),
-    ("Four fingers",   "Alt+Tab"),
+    ("Four fingers",   "Alt + Tab"),
     ("Index held 1s",  "Enter key"),
     ("Three fingers",  "Toggle keyboard"),
     ("Fist",           "Freeze cursor"),
     ("Open palm",      "Pause tracking"),
     ("Pinky only",     "Toggle guide"),
 ]
-
-def is_pinky_only(landmarks):
-    def finger_up(tip, pip):
-        return landmarks[tip]['y'] < landmarks[pip]['y']
-    return (
-        not finger_up(8, 6) and
-        not finger_up(12, 10) and
-        not finger_up(16, 14) and
-        finger_up(20, 18)
-    )
 
 def draw_guide(frame, visible, paused=False):
     h, w, _ = frame.shape
@@ -82,9 +77,15 @@ def draw_guide(frame, visible, paused=False):
     y = 10
 
     overlay = frame.copy()
-    cv2.rectangle(overlay, (x, y), (x + panel_w, y + panel_h), (20, 20, 20), -1)
+    cv2.rectangle(
+        overlay, (x, y),
+        (x + panel_w, y + panel_h), (20, 20, 20), -1
+    )
     cv2.addWeighted(overlay, 0.6, frame, 0.4, 0, frame)
-    cv2.rectangle(frame, (x, y), (x + panel_w, y + panel_h), (80, 80, 80), 1)
+    cv2.rectangle(
+        frame, (x, y),
+        (x + panel_w, y + panel_h), (80, 80, 80), 1
+    )
 
     cv2.putText(frame, "Gesture Guide",
         (x + padding, y + padding + 12),
@@ -107,33 +108,26 @@ def draw_guide(frame, visible, paused=False):
             cv2.FONT_HERSHEY_SIMPLEX, 0.42, (0, 220, 180), 1)
 
 
+def is_pinky_only(landmarks):
+    def finger_up(tip, pip):
+        return landmarks[tip]['y'] < landmarks[pip]['y']
+    return (
+        not finger_up(8, 6) and
+        not finger_up(12, 10) and
+        not finger_up(16, 14) and
+        finger_up(20, 18)
+    )
+
+
 def main():
     config = ConfigManager()
 
-    # ── Show UI first, before heavy initialization ──
+    # ── Show dashboard first ──
     dashboard = DashboardWindow()
     dashboard.showMaximized()
     app.processEvents()
 
-    # Loading screen label
-    from PyQt6.QtWidgets import QLabel
-    from PyQt6.QtCore import Qt
-    loading = QLabel("Initializing camera and hand detection...", dashboard)
-    loading.setStyleSheet(
-        f"color: #00dcdc; font-size: 14px; "
-        f"font-family: 'Plus Jakarta Sans';"
-        f"background: transparent;"
-    )
-    loading.setAlignment(Qt.AlignmentFlag.AlignCenter)
-    loading.resize(500, 40)
-    loading.move(
-        (dashboard.width() - 500) // 2,
-        dashboard.height() - 60
-    )
-    loading.show()
-    app.processEvents()
-
-    # ── Now do heavy initialization ──
+    # ── Heavy initialization ──
     camera = Camera(
         index=config.get('app', 'camera_index', default=0)
     )
@@ -167,63 +161,27 @@ def main():
     keyboard_visible = False
 
     # ── Rest of UI ──
-    settings = SettingsWindow(config, controller, classifier)
-    tray     = TrayIcon()
-    toolbar  = SlideToolbar(SCREEN_W, SCREEN_H)
+    settings     = SettingsWindow(config, controller, classifier)
+    tray         = TrayIcon()
+    toolbar      = SlideToolbar(SCREEN_W, SCREEN_H)
+    hand_overlay = HandOverlay(SCREEN_W, SCREEN_H)
 
-    # Remove loading label
-    loading.hide()
-    loading.deleteLater()
-    app.processEvents()
+    # Apply hand overlay settings from config
+    show_overlay = config.get('app', 'show_hand_overlay', default=True)
+    overlay_opacity = config.get('app', 'hand_overlay_opacity', default=0.15)
+    hand_overlay.set_opacity_level(overlay_opacity)
+    if show_overlay:
+        hand_overlay.show()
 
-    toolbar.show()
-    app.processEvents()
-
-    # rest of main() stays exactly the same from here...
-    config = ConfigManager()
-
-    camera = Camera(
-        index=config.get('app', 'camera_index', default=0)
-    )
-    detector = HandDetector(
-        max_hands=config.get('app', 'max_hands', default=2),
-        detection_confidence=config.get('app', 'detection_confidence', default=0.7),
-        tracking_confidence=config.get('app', 'tracking_confidence', default=0.7)
-    )
-    classifier = GestureClassifier(config=config)
-    controller = Controller(
-        screen_w=SCREEN_W,
-        screen_h=SCREEN_H,
-        cam_w=640,
-        cam_h=480,
-        config=config
-    )
-    keyboard = KeyboardOverlay(
-        SCREEN_W, SCREEN_H,
-        opacity=config.get('typing', 'keyboard_opacity', default=0.2)
-    )
-    keyboard.set_position(
-        config.get('typing', 'keyboard_position', default='bottom')
-    )
-
-    dwell = DwellManager(
-        dwell_time=config.get('typing', 'dwell_time', default=0.8)
-    )
-    keyboard_visible = False
-
-    # ── UI — create but do NOT show yet ──
-    dashboard = DashboardWindow()
-    settings  = SettingsWindow(config, controller, classifier)
-    tray      = TrayIcon()
-    toolbar   = SlideToolbar(SCREEN_W, SCREEN_H)
-
-    # Debug mode
+    # Debug mode — still available internally
     debug_mode         = [False]
     fps_counter        = [0]
     fps_timer          = [time.time()]
     current_fps        = [0]
     last_gesture_label = ["None"]
     quit_requested     = [False]
+    guide_visible      = config.get('app', 'show_guide', default=True)
+    guide_cooldown     = 0
 
     # ── Signal connections ──
 
@@ -236,8 +194,19 @@ def main():
         keyboard.repaint()
         controller.update_from_config(config)
         classifier.update_from_config(config)
+
+        # Update hand overlay
+        show_ov = config.get('app', 'show_hand_overlay', default=True)
+        ov_opac = config.get('app', 'hand_overlay_opacity', default=0.15)
+        hand_overlay.set_opacity_level(ov_opac)
+        hand_overlay.set_visible_overlay(show_ov)
+        if show_ov:
+            hand_overlay.show()
+        else:
+            hand_overlay.hide()
+
         tray.show_notification("Wavly", "Settings saved and applied.")
-        print(f"Settings applied — opacity: {keyboard.opacity}, position: {new_position}")
+        print(f"Settings applied.")
 
     def on_toggle_tracking():
         controller.toggle_tracking()
@@ -273,19 +242,16 @@ def main():
     tray.open_settings.connect(open_dashboard)
     tray.toggle_tracking.connect(on_toggle_tracking)
     tray.toggle_keyboard.connect(on_toggle_keyboard)
-    tray.quit_app.connect(lambda: quit_requested.__setitem__(0, True))
+    tray.quit_app.connect(
+        lambda: quit_requested.__setitem__(0, True)
+    )
 
-    guide_visible  = config.get('app', 'show_guide', default=True)
-    guide_cooldown = 0
-
-    # ── Show UI — only AFTER all signals are connected ──
-    app.processEvents()
-    dashboard.showMaximized()
-    app.processEvents()
+    # Show rest of UI
     toolbar.show()
     app.processEvents()
-
-    tray.show_notification("Wavly", "Wavly is running. Click the tray icon to open.")
+    tray.show_notification(
+        "Wavly", "Wavly is running. Click the tray icon to open."
+    )
     print(f"Wavly started. Screen: {SCREEN_W}x{SCREEN_H}")
 
     try:
@@ -298,7 +264,7 @@ def main():
                 print("Camera not found.")
                 break
 
-            frame, hands = detector.detect(frame, draw=debug_mode[0])
+            frame, hands = detector.detect(frame, draw=False)
             now = time.time()
 
             # FPS
@@ -307,6 +273,9 @@ def main():
                 current_fps[0] = fps_counter[0]
                 fps_counter[0] = 0
                 fps_timer[0]   = now
+
+            # Update hand overlay every frame
+            hand_overlay.set_hands(hands)
 
             fingertip_screen_positions = {}
             dwell_progress_map         = {}
@@ -338,22 +307,31 @@ def main():
                     continue
 
                 if keyboard_visible:
-                    TYPING_FINGERTIPS = config.get('typing', 'fingertips', default=[8])
+                    TYPING_FINGERTIPS = config.get(
+                        'typing', 'fingertips', default=[8]
+                    )
                     for fid in TYPING_FINGERTIPS:
                         tip      = landmarks[fid]
                         screen_x, screen_y = controller.map_to_screen(
                             tip['x'], tip['y']
                         )
-                        fingertip_screen_positions[fid] = (screen_x, screen_y)
+                        unique_id = f"{label}_{fid}"
+                        fingertip_screen_positions[unique_id] = (
+                            screen_x, screen_y
+                        )
                         local_x   = screen_x
                         local_y   = screen_y - keyboard._kb_y_offset
                         key_label = keyboard.get_key_at(local_x, local_y)
-                        fired_key = dwell.update(fid, key_label)
-                        progress  = dwell.get_progress(fid)
+                        fired_key = dwell.update(unique_id, key_label)
+                        progress  = dwell.get_progress(unique_id)
                         if key_label:
-                            dwell_progress_map[fid] = (key_label, progress)
+                            dwell_progress_map[unique_id] = (
+                                key_label, progress
+                            )
                         if fired_key:
-                            key_to_press = KEY_MAP.get(fired_key, fired_key.lower())
+                            key_to_press = KEY_MAP.get(
+                                fired_key, fired_key.lower()
+                            )
                             pyautogui.press(key_to_press)
                             last_gesture_label[0] = f"Typed: {fired_key}"
                             print(f"Typed: {fired_key}")
@@ -406,8 +384,11 @@ def main():
                 fps          = current_fps[0]
             )
 
+            # Debug camera window
             if debug_mode[0]:
-                draw_guide(frame, guide_visible, controller.tracking_paused)
+                draw_guide(
+                    frame, guide_visible, controller.tracking_paused
+                )
                 if keyboard_visible:
                     cv2.putText(
                         frame,
@@ -439,6 +420,7 @@ def main():
     finally:
         controller.stop_drag()
         keyboard.hide()
+        hand_overlay.hide()
         settings.hide()
         dashboard.hide()
         toolbar.hide()

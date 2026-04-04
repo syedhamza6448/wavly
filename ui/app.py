@@ -565,35 +565,44 @@ class SettingsWindow(QWidget):
     def _build_camera_section(self):
         card = make_card()
 
+        # ── Camera selector ──
         cam_row = QWidget()
         cl = QHBoxLayout(cam_row)
         cl.setContentsMargins(0, 0, 0, 0)
         cl.setSpacing(14)
 
-        cam_label = QLabel("Camera index")
+        cam_label = QLabel("Camera")
         cam_label.setMinimumWidth(180)
         cam_label.setStyleSheet(
             f"color: {TEXT_PRIMARY}; font-family: '{FONT_BODY}';"
         )
 
-        self.camera_spin = QSpinBox()
-        self.camera_spin.setMinimum(0)
-        self.camera_spin.setMaximum(5)
-        self.camera_spin.setValue(
-            self.config.get('app', 'camera_index', default=0)
-        )
-        self.camera_spin.setFixedWidth(80)
+        self.camera_combo = QComboBox()
+        self.camera_combo.setMinimumWidth(220)
 
-        hint = QLabel("0 = default webcam, 1+ = external cameras")
-        hint.setObjectName("muted")
+        # Detect connected cameras
+        connected = self._detect_cameras()
+        current_index = self.config.get('app', 'camera_index', default=0)
+
+        if not connected:
+            self.camera_combo.addItem("No cameras found")
+        else:
+            for i, idx in enumerate(connected):
+                label = f"Camera {idx + 1} (Default)" if idx == 0 else f"Camera {idx + 1}"
+                self.camera_combo.addItem(label, userData=idx)
+            # Select the currently configured camera
+            for i in range(self.camera_combo.count()):
+                if self.camera_combo.itemData(i) == current_index:
+                    self.camera_combo.setCurrentIndex(i)
+                    break
 
         cl.addWidget(cam_label)
-        cl.addWidget(self.camera_spin)
-        cl.addWidget(hint)
+        cl.addWidget(self.camera_combo)
         cl.addStretch()
         card.layout().addWidget(cam_row)
         card.layout().addWidget(make_divider())
 
+        # ── Pinch sensitivity ──
         row, self.pinch_slider, self.pinch_label = make_slider_row(
             "Pinch sensitivity", 10, 80,
             self.config.get('gestures', 'pinch_threshold', default=40),
@@ -606,7 +615,68 @@ class SettingsWindow(QWidget):
         hint2.setObjectName("muted")
         card.layout().addWidget(row)
         card.layout().addWidget(hint2)
+        card.layout().addWidget(make_divider())
+
+        # ── Hand overlay toggle ──
+        overlay_row = QWidget()
+        ol = QHBoxLayout(overlay_row)
+        ol.setContentsMargins(0, 0, 0, 0)
+        ol.setSpacing(14)
+
+        overlay_label = QLabel("Hand outline overlay")
+        overlay_label.setMinimumWidth(180)
+        overlay_label.setStyleSheet(
+            f"color: {TEXT_PRIMARY}; font-family: '{FONT_BODY}';"
+        )
+
+        self.overlay_toggle = ToggleSwitch(
+            checked=self.config.get('app', 'show_hand_overlay', default=True)
+        )
+        overlay_hint = QLabel("Shows hand skeleton on screen")
+        overlay_hint.setObjectName("muted")
+
+        ol.addWidget(overlay_label)
+        ol.addWidget(self.overlay_toggle)
+        ol.addWidget(overlay_hint)
+        ol.addStretch()
+        card.layout().addWidget(overlay_row)
+        card.layout().addWidget(make_divider())
+
+        # ── Overlay opacity ──
+        row2, self.overlay_opacity_slider, self.overlay_opacity_label = make_slider_row(
+            "Overlay opacity", 5, 50,
+            int(self.config.get('app', 'hand_overlay_opacity', default=0.15) * 100),
+            scale=1, suffix="%"
+        )
+        self.overlay_opacity_slider.valueChanged.connect(
+            lambda v: self.overlay_opacity_label.setText(f"{v}%")
+        )
+        hint3 = QLabel("How visible the hand skeleton is on screen")
+        hint3.setObjectName("muted")
+        card.layout().addWidget(row2)
+        card.layout().addWidget(hint3)
+
         return card
+
+    def _detect_cameras(self):
+        """
+        Scans camera indices 0-9 and returns a list
+        of indices where a camera is actually connected.
+        """
+        import cv2
+        connected = []
+        for i in range(10):
+            cap = cv2.VideoCapture(i, cv2.CAP_DSHOW)
+            if cap is not None and cap.isOpened():
+                ret, _ = cap.read()
+                if ret:
+                    connected.append(i)
+            cap.release()
+            # Stop scanning after 2 consecutive misses
+            # past the first found camera
+            if connected and i > connected[-1] + 1:
+                break
+        return connected
 
     def _build_gestures_section(self):
         card = make_card()
@@ -687,10 +757,15 @@ class SettingsWindow(QWidget):
             value=round(self.dwell_slider.value() / 10, 1))
         self.config.set('typing', 'keyboard_position',
             value=self.position_combo.currentText())
-        self.config.set('app', 'camera_index',
-            value=self.camera_spin.value())
+        selected_cam = self.camera_combo.currentData()
+        if selected_cam is not None:
+            self.config.set('app', 'camera_index', value=selected_cam)
         self.config.set('gestures', 'pinch_threshold',
             value=self.pinch_slider.value())
+        self.config.set('app', 'show_hand_overlay',
+            value=self.overlay_toggle.is_checked())
+        self.config.set('app', 'hand_overlay_opacity',
+            value=round(self.overlay_opacity_slider.value() / 100, 2))
 
         for key, toggle in self.gesture_toggles.items():
             self.config.set('gesture_enabled', key,

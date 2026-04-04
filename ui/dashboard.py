@@ -288,7 +288,7 @@ class DashboardWindow(QWidget):
             return btn
 
         self.settings_btn = nav_btn("⚙", "Settings", self.open_settings.emit)
-        self.debug_btn    = nav_btn("◉", "Camera Feed", self._on_toggle_debug)
+        self.debug_btn    = nav_btn("◉", "Debug Feed", self._on_toggle_debug)
 
         sb_layout.addWidget(self.settings_btn)
         sb_layout.addSpacing(8)
